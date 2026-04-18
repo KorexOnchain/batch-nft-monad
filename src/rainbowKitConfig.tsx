@@ -25,8 +25,8 @@ export const monadTestnet = defineChain({
 });
 
 export default getDefaultConfig({
-  appName: "MonadBlitz NFT",
+  appName: "DispatchPay",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID!,
   chains: [monadTestnet],
-  ssr: false,
+  ssr: true,
 });

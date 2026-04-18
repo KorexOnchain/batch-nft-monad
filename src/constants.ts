@@ -1,78 +1,135 @@
-export const MONAD_NFT_ADDRESS = "0x581E516E2a62Cf5338471AA9343EeF831A098CCd" as `0x${string}`
-export const BATCH_MINTER_ADDRESS = "0x6026e7ECa0AA41381ca8D7D87290AF039795E891" as `0x${string}`
+import { monadTestnet } from "@/rainbowKitConfig";
 
-export const MONAD_NFT_ABI = [
-  {
-    name: "totalSupply",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }]
-  },
-  {
-    name: "tokenURI",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "tokenId", type: "uint256" }],
-    outputs: [{ name: "", type: "string" }]
-  },
-  {
-    name: "ownerOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "tokenId", type: "uint256" }],
-    outputs: [{ name: "", type: "address" }]
-  },
-  {
-    name: "MAX_SUPPLY",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }]
-  },
-  {
-    name: "balanceOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "owner", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }]
-  }
-] as const
+export const ESCROW_CONTRACT_ADDRESS =
+    "0x4e2BB0bd77715eb6F01da242333486Debf18F924" as const;
 
-export const BATCH_MINTER_ABI = [
-  {
-    name: "batchMint",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "to", type: "address" },
-      { name: "amount", type: "uint256" }
-    ],
-    outputs: []
-  },
-  {
-    name: "publicMint",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [],
-    outputs: []
-  },
-  {
-    name: "remainingSupply",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }]
-  },
-  {
-    name: "BatchMinted",
-    type: "event",
-    inputs: [
-      { name: "to", type: "address", indexed: true },
-      { name: "startId", type: "uint256", indexed: false },
-      { name: "endId", type: "uint256", indexed: false },
-      { name: "count", type: "uint256", indexed: false },
-      { name: "timeTaken", type: "uint256", indexed: false }
-    ]
-  }
-] as const
+export const ESCROW_ABI = [
+    { type: "constructor", inputs: [], stateMutability: "nonpayable" },
+    { type: "receive", stateMutability: "payable" },
+
+    // ── View / Pure functions ─────────────────────────────────────
+    { type: "function", name: "DISPUTE_WINDOW", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+    { type: "function", name: "MAX_OTP_ATTEMPTS", inputs: [], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" },
+    { type: "function", name: "REFUND_TIMEOUT", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+    { type: "function", name: "orderCount", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+    { type: "function", name: "owner", inputs: [], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
+    {
+        type: "function", name: "getOrder",
+        inputs: [{ name: "orderId", type: "uint256" }],
+        outputs: [{
+            name: "", type: "tuple",
+            components: [
+                { name: "buyer", type: "address" },
+                { name: "seller", type: "address" },
+                { name: "usdPrice", type: "uint256" },
+                { name: "monadAmount", type: "uint256" },
+                { name: "zone", type: "bytes32" },
+                { name: "otpHash", type: "bytes32" },
+                { name: "status", type: "uint8" },
+                { name: "createdAt", type: "uint256" },
+                { name: "deliveredAt", type: "uint256" },
+                { name: "confirmedAt", type: "uint256" },
+            ],
+        }],
+        stateMutability: "view",
+    },
+    {
+        type: "function", name: "orders",
+        inputs: [{ name: "", type: "uint256" }],
+        outputs: [
+            { name: "buyer", type: "address" },
+            { name: "seller", type: "address" },
+            { name: "usdPrice", type: "uint256" },
+            { name: "monadAmount", type: "uint256" },
+            { name: "zone", type: "bytes32" },
+            { name: "otpHash", type: "bytes32" },
+            { name: "status", type: "uint8" },
+            { name: "createdAt", type: "uint256" },
+            { name: "deliveredAt", type: "uint256" },
+            { name: "confirmedAt", type: "uint256" },
+        ],
+        stateMutability: "view",
+    },
+    { type: "function", name: "getStatus", inputs: [{ name: "orderId", type: "uint256" }], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" },
+    { type: "function", name: "getPrice", inputs: [{ name: "seller", type: "address" }, { name: "zone", type: "bytes32" }], outputs: [{ name: "usdCents", type: "uint256" }], stateMutability: "view" },
+    { type: "function", name: "isSellerReady", inputs: [{ name: "seller", type: "address" }, { name: "zone", type: "bytes32" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+    { type: "function", name: "sellerAvailable", inputs: [{ name: "", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+    { type: "function", name: "sellerPrices", inputs: [{ name: "", type: "address" }, { name: "", type: "bytes32" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+    { type: "function", name: "otpAttempts", inputs: [{ name: "", type: "uint256" }], outputs: [{ name: "", type: "uint8" }], stateMutability: "view" },
+    { type: "function", name: "disputeTimeLeft", inputs: [{ name: "orderId", type: "uint256" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+
+    // ── Write functions ───────────────────────────────────────────
+    { type: "function", name: "setAvailability", inputs: [{ name: "available", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "setPrice", inputs: [{ name: "zone", type: "bytes32" }, { name: "usdCents", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "removePrice", inputs: [{ name: "zone", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "createOrder", inputs: [{ name: "seller", type: "address" }, { name: "zone", type: "bytes32" }], outputs: [{ name: "orderId", type: "uint256" }], stateMutability: "payable" },
+    { type: "function", name: "markDelivered", inputs: [{ name: "orderId", type: "uint256" }, { name: "otpHash", type: "bytes32" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "confirmDelivery", inputs: [{ name: "orderId", type: "uint256" }, { name: "otp", type: "string" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "releaseFunds", inputs: [{ name: "orderId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "disputeOrder", inputs: [{ name: "orderId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "claimRefund", inputs: [{ name: "orderId", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "resolveDispute", inputs: [{ name: "orderId", type: "uint256" }, { name: "refundBuyer", type: "bool" }], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "renounceOwnership", inputs: [], outputs: [], stateMutability: "nonpayable" },
+    { type: "function", name: "transferOwnership", inputs: [{ name: "newOwner", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+
+    // ── Events ────────────────────────────────────────────────────
+    { type: "event", name: "OrderCreated", inputs: [{ name: "orderId", type: "uint256", indexed: true }, { name: "buyer", type: "address", indexed: true }, { name: "seller", type: "address", indexed: true }, { name: "zone", type: "bytes32", indexed: false }, { name: "usdPrice", type: "uint256", indexed: false }, { name: "monadAmount", type: "uint256", indexed: false }], anonymous: false },
+    { type: "event", name: "OrderDelivered", inputs: [{ name: "orderId", type: "uint256", indexed: true }, { name: "otpHash", type: "bytes32", indexed: false }], anonymous: false },
+    { type: "event", name: "OrderCompleted", inputs: [{ name: "orderId", type: "uint256", indexed: true }, { name: "confirmedAt", type: "uint256", indexed: false }], anonymous: false },
+    { type: "event", name: "OrderReleased", inputs: [{ name: "orderId", type: "uint256", indexed: true }, { name: "monadAmount", type: "uint256", indexed: false }], anonymous: false },
+    { type: "event", name: "OrderRefunded", inputs: [{ name: "orderId", type: "uint256", indexed: true }], anonymous: false },
+    { type: "event", name: "OrderDisputed", inputs: [{ name: "orderId", type: "uint256", indexed: true }], anonymous: false },
+    { type: "event", name: "DisputeResolved", inputs: [{ name: "orderId", type: "uint256", indexed: true }, { name: "recipient", type: "address", indexed: false }, { name: "monadAmount", type: "uint256", indexed: false }], anonymous: false },
+    { type: "event", name: "PriceSet", inputs: [{ name: "seller", type: "address", indexed: true }, { name: "zone", type: "bytes32", indexed: false }, { name: "usdCents", type: "uint256", indexed: false }], anonymous: false },
+    { type: "event", name: "PriceRemoved", inputs: [{ name: "seller", type: "address", indexed: true }, { name: "zone", type: "bytes32", indexed: false }], anonymous: false },
+    { type: "event", name: "AvailabilityChanged", inputs: [{ name: "seller", type: "address", indexed: true }, { name: "available", type: "bool", indexed: false }], anonymous: false },
+    { type: "event", name: "OTPFailed", inputs: [{ name: "orderId", type: "uint256", indexed: true }, { name: "attemptNumber", type: "uint8", indexed: false }, { name: "attemptsLeft", type: "uint8", indexed: false }], anonymous: false },
+    { type: "event", name: "OwnershipTransferred", inputs: [{ name: "previousOwner", type: "address", indexed: true }, { name: "newOwner", type: "address", indexed: true }], anonymous: false },
+
+    // ── Errors ────────────────────────────────────────────────────
+    { type: "error", name: "EscrowCore__DisputeWindowClosed", inputs: [] },
+    { type: "error", name: "EscrowCore__DisputeWindowOpen", inputs: [] },
+    { type: "error", name: "EscrowCore__InvalidOTP", inputs: [] },
+    { type: "error", name: "EscrowCore__InvalidOTPHash", inputs: [] },
+    { type: "error", name: "EscrowCore__InvalidZone", inputs: [] },
+    { type: "error", name: "EscrowCore__MaxAttemptsReached", inputs: [] },
+    { type: "error", name: "EscrowCore__NotBuyer", inputs: [] },
+    { type: "error", name: "EscrowCore__NotSeller", inputs: [] },
+    { type: "error", name: "EscrowCore__SelfTrade", inputs: [] },
+    { type: "error", name: "EscrowCore__SellerUnavailable", inputs: [] },
+    { type: "error", name: "EscrowCore__TimeoutNotReached", inputs: [] },
+    { type: "error", name: "EscrowCore__TransferFailed", inputs: [] },
+    { type: "error", name: "EscrowCore__WrongStatus", inputs: [{ name: "expected", type: "uint8" }, { name: "actual", type: "uint8" }] },
+    { type: "error", name: "EscrowCore__ZeroAddress", inputs: [] },
+    { type: "error", name: "EscrowCore__ZeroPayment", inputs: [] },
+    { type: "error", name: "EscrowCore__ZeroPriceCents", inputs: [] },
+    { type: "error", name: "EscrowCore__ZoneNotFound", inputs: [] },
+    { type: "error", name: "OwnableInvalidOwner", inputs: [{ name: "owner", type: "address" }] },
+    { type: "error", name: "OwnableUnauthorizedAccount", inputs: [{ name: "account", type: "address" }] },
+    { type: "error", name: "ReentrancyGuardReentrantCall", inputs: [] },
+] as const;
+
+// Spread into any wagmi hook
+export const escrowContract = {
+    address: ESCROW_CONTRACT_ADDRESS,
+    abi: ESCROW_ABI,
+    chainId: monadTestnet.id,
+} as const;
+
+// Status enum mapping
+export const ORDER_STATUS = {
+    0: "Funded",
+    1: "Delivered",
+    2: "Completed",
+    3: "Released",
+    4: "Refunded",
+    5: "Disputed",
+} as const;
+
+export type OrderStatus = keyof typeof ORDER_STATUS;
+
+// Helper — converts a zone string to bytes32 for contract calls
+export function encodeZone(zone: string): `0x${string}` {
+    const hex = Buffer.from(zone, "utf8").toString("hex").padEnd(64, "0");
+    return `0x${hex}`;
+}
