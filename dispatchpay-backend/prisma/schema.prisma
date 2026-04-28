@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  address   String   @unique
+  name      String
+  phone     String
+  role      Role     @default(BUYER)
+  createdAt DateTime @default(now())
+
+  buyerOrders  Order[] @relation("BuyerOrders")
+  sellerOrders Order[] @relation("SellerOrders")
+  nonce        Nonce?
+}
+
+enum Role {
+  BUYER
+  SELLER
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  onchainId     String      @unique
+  buyerAddress  String
+  sellerAddress String
+  amount        String
+  status        OrderStatus @default(PENDING)
+  otpHash       String?
+  txHash        String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  buyer  User @relation("BuyerOrders", fields: [buyerAddress], references: [address])
+  seller User @relation("SellerOrders", fields: [sellerAddress], references: [address])
+}
+
+enum OrderStatus {
+  PENDING
+  DELIVERED
+  COMPLETED
+  REFUNDED
+  DISPUTED
+}
+
+model Nonce {
+  id        String   @id @default(cuid())
+  address   String   @unique
+  nonce     String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [address], references: [address])
+}

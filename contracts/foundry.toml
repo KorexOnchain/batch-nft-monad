@@ -8,5 +8,7 @@ optimizer_runs = 200
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
 ]
+
 [rpc_endpoints]
-monad_testnet = "https://testnet-rpc.monad.xyz"
+base_sepolia = "https://sepolia.base.org"
+base_mainnet = "https://mainnet.base.org"

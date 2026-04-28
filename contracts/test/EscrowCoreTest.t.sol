@@ -3,9 +3,24 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {EscrowCore} from "../src/EscrowCore.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+/// @dev Minimal mock USDC — 6 decimals, freely mintable in tests
+contract MockUSDC is ERC20 {
+    constructor() ERC20("USD Coin", "USDC") {}
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
 
 contract EscrowCoreTest is Test {
     EscrowCore public escrow;
+    MockUSDC public usdc;
 
     address public owner;
     address public seller;
@@ -16,8 +31,8 @@ contract EscrowCoreTest is Test {
     bytes32 public constant ZONE_IKEJA = keccak256("ikeja");
     bytes32 public constant ZONE_INVALID = bytes32(0);
 
-    uint256 public constant PRICE_CENTS = 1500; // $15.00
-    uint256 public constant MONAD_AMOUNT = 1 ether;
+    /// @dev $15.00 in USDC units (6 decimals)
+    uint256 public constant USDC_PRICE = 15_000_000;
 
     string public constant VALID_OTP = "123456";
     bytes32 public VALID_OTP_HASH;
@@ -32,18 +47,19 @@ contract EscrowCoreTest is Test {
         buyer = makeAddr("buyer");
         other = makeAddr("other");
 
-        escrow = new EscrowCore();
+        usdc = new MockUSDC();
+        escrow = new EscrowCore(address(usdc));
 
         VALID_OTP_HASH = keccak256(abi.encodePacked(VALID_OTP));
 
-        // Fund buyer
-        vm.deal(buyer, 100 ether);
-        vm.deal(seller, 100 ether);
+        // Mint USDC to buyer and other so they can fund orders
+        usdc.mint(buyer, 10_000 * 1e6);
+        usdc.mint(other, 10_000 * 1e6);
 
         // Seller sets up
         vm.startPrank(seller);
         escrow.setAvailability(true);
-        escrow.setPrice(ZONE_LEKKI, PRICE_CENTS);
+        escrow.setPrice(ZONE_LEKKI, USDC_PRICE);
         vm.stopPrank();
     }
 
@@ -51,12 +67,12 @@ contract EscrowCoreTest is Test {
     // Helpers
     // ─────────────────────────────────────────────────────────────
 
+    /// @dev Approve escrow and create an order as buyer
     function _createOrder() internal returns (uint256 orderId) {
-        vm.prank(buyer);
-        orderId = escrow.createOrder{value: MONAD_AMOUNT}(
-            payable(seller),
-            ZONE_LEKKI
-        );
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), USDC_PRICE);
+        orderId = escrow.createOrder(payable(seller), ZONE_LEKKI);
+        vm.stopPrank();
     }
 
     function _createAndDeliver() internal returns (uint256 orderId) {
@@ -69,6 +85,19 @@ contract EscrowCoreTest is Test {
         orderId = _createAndDeliver();
         vm.prank(buyer);
         escrow.confirmDelivery(orderId, VALID_OTP);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Constructor
+    // ─────────────────────────────────────────────────────────────
+
+    function test_Constructor_SetsUSDC() public view {
+        assertEq(address(escrow.usdc()), address(usdc));
+    }
+
+    function test_Constructor_RevertsOnZeroAddress() public {
+        vm.expectRevert(EscrowCore.EscrowCore__ZeroAddress.selector);
+        new EscrowCore(address(0));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -93,19 +122,19 @@ contract EscrowCoreTest is Test {
 
     function test_SetPrice_StoresCorrectly() public {
         vm.prank(seller);
-        escrow.setPrice(ZONE_IKEJA, 2000);
-        assertEq(escrow.sellerPrices(seller, ZONE_IKEJA), 2000);
+        escrow.setPrice(ZONE_IKEJA, 20_000_000);
+        assertEq(escrow.sellerPrices(seller, ZONE_IKEJA), 20_000_000);
     }
 
     function test_SetPrice_RevertsOnZeroZone() public {
         vm.prank(seller);
         vm.expectRevert(EscrowCore.EscrowCore__InvalidZone.selector);
-        escrow.setPrice(ZONE_INVALID, PRICE_CENTS);
+        escrow.setPrice(ZONE_INVALID, USDC_PRICE);
     }
 
-    function test_SetPrice_RevertsOnZeroCents() public {
+    function test_SetPrice_RevertsOnZeroPrice() public {
         vm.prank(seller);
-        vm.expectRevert(EscrowCore.EscrowCore__ZeroPriceCents.selector);
+        vm.expectRevert(EscrowCore.EscrowCore__ZeroPrice.selector);
         escrow.setPrice(ZONE_LEKKI, 0);
     }
 
@@ -140,28 +169,27 @@ contract EscrowCoreTest is Test {
     // ─────────────────────────────────────────────────────────────
 
     function test_CreateOrder_Success() public {
-        vm.expectEmit(true, true, true, true);
-        emit EscrowCore.OrderCreated(
-            1,
-            buyer,
-            seller,
-            ZONE_LEKKI,
-            PRICE_CENTS,
-            MONAD_AMOUNT
-        );
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), USDC_PRICE);
 
-        uint256 orderId = _createOrder();
+        vm.expectEmit(true, true, true, true);
+        emit EscrowCore.OrderCreated(1, buyer, seller, ZONE_LEKKI, USDC_PRICE);
+
+        uint256 orderId = escrow.createOrder(payable(seller), ZONE_LEKKI);
+        vm.stopPrank();
+
         assertEq(orderId, 1);
         assertEq(escrow.orderCount(), 1);
 
         EscrowCore.Order memory order = escrow.getOrder(orderId);
         assertEq(order.buyer, buyer);
         assertEq(order.seller, seller);
-        assertEq(order.usdPrice, PRICE_CENTS);
-        assertEq(order.monadAmount, MONAD_AMOUNT);
+        assertEq(order.usdcAmount, USDC_PRICE);
         assertEq(order.zone, ZONE_LEKKI);
         assertEq(uint8(order.status), uint8(EscrowCore.Status.Funded));
-        assertEq(address(escrow).balance, MONAD_AMOUNT);
+
+        // USDC pulled from buyer into escrow
+        assertEq(usdc.balanceOf(address(escrow)), USDC_PRICE);
     }
 
     function test_CreateOrder_IncrementOrderCount() public {
@@ -170,53 +198,54 @@ contract EscrowCoreTest is Test {
         assertEq(escrow.orderCount(), 2);
     }
 
-    function test_CreateOrder_RevertsOnZeroValue() public {
+    function test_CreateOrder_RevertsWithoutApproval() public {
         vm.prank(buyer);
-        vm.expectRevert(EscrowCore.EscrowCore__ZeroPayment.selector);
-        escrow.createOrder{value: 0}(payable(seller), ZONE_LEKKI);
+        // No approve() — SafeERC20 will revert
+        vm.expectRevert();
+        escrow.createOrder(payable(seller), ZONE_LEKKI);
     }
 
     function test_CreateOrder_RevertsOnZeroAddress() public {
-        vm.prank(buyer);
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), USDC_PRICE);
         vm.expectRevert(EscrowCore.EscrowCore__ZeroAddress.selector);
-        escrow.createOrder{value: MONAD_AMOUNT}(
-            payable(address(0)),
-            ZONE_LEKKI
-        );
+        escrow.createOrder(payable(address(0)), ZONE_LEKKI);
+        vm.stopPrank();
     }
 
     function test_CreateOrder_RevertsSelfTrade() public {
-        vm.prank(seller);
+        vm.startPrank(seller);
+        usdc.approve(address(escrow), USDC_PRICE);
         vm.expectRevert(EscrowCore.EscrowCore__SelfTrade.selector);
-        escrow.createOrder{value: MONAD_AMOUNT}(payable(seller), ZONE_LEKKI);
+        escrow.createOrder(payable(seller), ZONE_LEKKI);
+        vm.stopPrank();
     }
 
     function test_CreateOrder_RevertsOnZeroZone() public {
-        vm.prank(buyer);
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), USDC_PRICE);
         vm.expectRevert(EscrowCore.EscrowCore__InvalidZone.selector);
-        escrow.createOrder{value: MONAD_AMOUNT}(payable(seller), ZONE_INVALID);
+        escrow.createOrder(payable(seller), ZONE_INVALID);
+        vm.stopPrank();
     }
 
     function test_CreateOrder_RevertsWhenSellerUnavailable() public {
         vm.prank(seller);
         escrow.setAvailability(false);
 
-        vm.prank(buyer);
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), USDC_PRICE);
         vm.expectRevert(EscrowCore.EscrowCore__SellerUnavailable.selector);
-        escrow.createOrder{value: MONAD_AMOUNT}(payable(seller), ZONE_LEKKI);
+        escrow.createOrder(payable(seller), ZONE_LEKKI);
+        vm.stopPrank();
     }
 
     function test_CreateOrder_RevertsOnUnpricedZone() public {
-        vm.prank(buyer);
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), USDC_PRICE);
         vm.expectRevert(EscrowCore.EscrowCore__ZoneNotFound.selector);
-        escrow.createOrder{value: MONAD_AMOUNT}(payable(seller), ZONE_IKEJA);
-    }
-
-    function test_CreateOrder_RevertsDirectEthSend() public {
-        vm.prank(buyer);
-        vm.expectRevert("Use createOrder()");
-        (bool ok, ) = address(escrow).call{value: 1 ether}("");
-        assertTrue(!ok || true); // suppress unused-variable warning
+        escrow.createOrder(payable(seller), ZONE_IKEJA);
+        vm.stopPrank();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -290,7 +319,6 @@ contract EscrowCoreTest is Test {
         escrow.confirmDelivery(orderId, VALID_OTP);
     }
 
-
     function test_ConfirmDelivery_EmitsOTPFailed() public {
         uint256 orderId = _createAndDeliver();
 
@@ -305,7 +333,6 @@ contract EscrowCoreTest is Test {
         uint256 orderId = _createAndDeliver();
         uint8 max = escrow.MAX_OTP_ATTEMPTS();
 
-        // Fail OTP max - 1 times
         for (uint8 i; i < max - 1; i++) {
             vm.prank(buyer);
             escrow.confirmDelivery(orderId, "wrong");
@@ -320,6 +347,7 @@ contract EscrowCoreTest is Test {
         EscrowCore.Order memory order = escrow.getOrder(orderId);
         assertEq(uint8(order.status), uint8(EscrowCore.Status.Disputed));
 
+        // Further attempts should revert — wrong status
         vm.prank(buyer);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -350,19 +378,21 @@ contract EscrowCoreTest is Test {
 
     function test_ReleaseFunds_Success() public {
         uint256 orderId = _createDeliverAndConfirm();
-        uint256 sellerBefore = seller.balance;
+        uint256 sellerBefore = usdc.balanceOf(seller);
 
         vm.warp(block.timestamp + escrow.DISPUTE_WINDOW() + 1);
 
         vm.expectEmit(true, false, false, true);
-        emit EscrowCore.OrderReleased(orderId, MONAD_AMOUNT);
+        emit EscrowCore.OrderReleased(orderId, USDC_PRICE);
 
-        escrow.releaseFunds(orderId); 
-        assertEq(seller.balance, sellerBefore + MONAD_AMOUNT);
+        escrow.releaseFunds(orderId);
+
+        assertEq(usdc.balanceOf(seller), sellerBefore + USDC_PRICE);
+        assertEq(usdc.balanceOf(address(escrow)), 0);
 
         EscrowCore.Order memory order = escrow.getOrder(orderId);
         assertEq(uint8(order.status), uint8(EscrowCore.Status.Released));
-        assertEq(order.monadAmount, 0);
+        assertEq(order.usdcAmount, 0);
     }
 
     function test_ReleaseFunds_RevertsInsideDisputeWindow() public {
@@ -388,13 +418,10 @@ contract EscrowCoreTest is Test {
         uint256 orderId = _createDeliverAndConfirm();
         vm.warp(block.timestamp + escrow.DISPUTE_WINDOW() + 1);
 
-        vm.prank(other); // not buyer or seller
+        vm.prank(other);
         escrow.releaseFunds(orderId);
 
-        assertEq(
-            uint8(escrow.getStatus(orderId)),
-            uint8(EscrowCore.Status.Released)
-        );
+        assertEq(uint8(escrow.getStatus(orderId)), uint8(EscrowCore.Status.Released));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -410,10 +437,7 @@ contract EscrowCoreTest is Test {
         vm.prank(buyer);
         escrow.disputeOrder(orderId);
 
-        assertEq(
-            uint8(escrow.getStatus(orderId)),
-            uint8(EscrowCore.Status.Disputed)
-        );
+        assertEq(uint8(escrow.getStatus(orderId)), uint8(EscrowCore.Status.Disputed));
     }
 
     function test_DisputeOrder_RevertsIfNotBuyer() public {
@@ -457,31 +481,25 @@ contract EscrowCoreTest is Test {
 
     function test_ResolveDispute_RefundBuyer() public {
         uint256 orderId = _disputedOrder();
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore = usdc.balanceOf(buyer);
 
         vm.expectEmit(true, false, false, true);
-        emit EscrowCore.DisputeResolved(orderId, buyer, MONAD_AMOUNT);
+        emit EscrowCore.DisputeResolved(orderId, buyer, USDC_PRICE);
 
         escrow.resolveDispute(orderId, true);
 
-        assertEq(buyer.balance, buyerBefore + MONAD_AMOUNT);
-        assertEq(
-            uint8(escrow.getStatus(orderId)),
-            uint8(EscrowCore.Status.Refunded)
-        );
+        assertEq(usdc.balanceOf(buyer), buyerBefore + USDC_PRICE);
+        assertEq(uint8(escrow.getStatus(orderId)), uint8(EscrowCore.Status.Refunded));
     }
 
     function test_ResolveDispute_ReleasesToSeller() public {
         uint256 orderId = _disputedOrder();
-        uint256 sellerBefore = seller.balance;
+        uint256 sellerBefore = usdc.balanceOf(seller);
 
         escrow.resolveDispute(orderId, false);
 
-        assertEq(seller.balance, sellerBefore + MONAD_AMOUNT);
-        assertEq(
-            uint8(escrow.getStatus(orderId)),
-            uint8(EscrowCore.Status.Released)
-        );
+        assertEq(usdc.balanceOf(seller), sellerBefore + USDC_PRICE);
+        assertEq(uint8(escrow.getStatus(orderId)), uint8(EscrowCore.Status.Released));
     }
 
     function test_ResolveDispute_RevertsIfNotOwner() public {
@@ -509,7 +527,7 @@ contract EscrowCoreTest is Test {
 
     function test_ClaimRefund_Success() public {
         uint256 orderId = _createOrder();
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore = usdc.balanceOf(buyer);
 
         vm.warp(block.timestamp + escrow.REFUND_TIMEOUT() + 1);
 
@@ -519,11 +537,8 @@ contract EscrowCoreTest is Test {
         vm.prank(buyer);
         escrow.claimRefund(orderId);
 
-        assertEq(buyer.balance, buyerBefore + MONAD_AMOUNT);
-        assertEq(
-            uint8(escrow.getStatus(orderId)),
-            uint8(EscrowCore.Status.Refunded)
-        );
+        assertEq(usdc.balanceOf(buyer), buyerBefore + USDC_PRICE);
+        assertEq(uint8(escrow.getStatus(orderId)), uint8(EscrowCore.Status.Refunded));
     }
 
     function test_ClaimRefund_RevertsBeforeTimeout() public {
@@ -586,43 +601,45 @@ contract EscrowCoreTest is Test {
 
     function test_FullFlow_NoDispute() public {
         uint256 orderId = _createDeliverAndConfirm();
+        uint256 sellerBefore = usdc.balanceOf(seller);
 
         vm.warp(block.timestamp + escrow.DISPUTE_WINDOW() + 1);
-        uint256 sellerBefore = seller.balance;
         escrow.releaseFunds(orderId);
-        assertGt(seller.balance, sellerBefore);
+
+        assertGt(usdc.balanceOf(seller), sellerBefore);
     }
 
     function test_FullFlow_BuyerDisputesAndWins() public {
         uint256 orderId = _createDeliverAndConfirm();
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore = usdc.balanceOf(buyer);
 
         vm.prank(buyer);
         escrow.disputeOrder(orderId);
-
         escrow.resolveDispute(orderId, true);
-        assertGt(buyer.balance, buyerBefore);
+
+        assertGt(usdc.balanceOf(buyer), buyerBefore);
     }
 
     function test_FullFlow_BuyerDisputesAndLoses() public {
         uint256 orderId = _createDeliverAndConfirm();
-        uint256 sellerBefore = seller.balance;
+        uint256 sellerBefore = usdc.balanceOf(seller);
 
         vm.prank(buyer);
         escrow.disputeOrder(orderId);
-
         escrow.resolveDispute(orderId, false);
-        assertGt(seller.balance, sellerBefore);
+
+        assertGt(usdc.balanceOf(seller), sellerBefore);
     }
 
     function test_FullFlow_SellerNeverDeliversBuyerRefunded() public {
         uint256 orderId = _createOrder();
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore = usdc.balanceOf(buyer);
 
         vm.warp(block.timestamp + escrow.REFUND_TIMEOUT() + 1);
         vm.prank(buyer);
         escrow.claimRefund(orderId);
-        assertGt(buyer.balance, buyerBefore);
+
+        assertGt(usdc.balanceOf(buyer), buyerBefore);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -706,27 +723,31 @@ contract EscrowCoreTest is Test {
     // Fuzz
     // ─────────────────────────────────────────────────────────────
 
-    function testFuzz_SetPrice(bytes32 zone, uint256 cents) public {
+    function testFuzz_SetPrice(bytes32 zone, uint256 amount) public {
         vm.assume(zone != bytes32(0));
-        vm.assume(cents > 0);
+        vm.assume(amount > 0);
 
         vm.prank(seller);
-        escrow.setPrice(zone, cents);
-        assertEq(escrow.sellerPrices(seller, zone), cents);
+        escrow.setPrice(zone, amount);
+        assertEq(escrow.sellerPrices(seller, zone), amount);
     }
 
-    function testFuzz_CreateOrder_WithArbitraryValue(uint96 amount) public {
+    function testFuzz_CreateOrder_WithArbitraryUSDC(uint64 amount) public {
         vm.assume(amount > 0);
-        vm.deal(buyer, uint256(amount));
 
-        vm.prank(buyer);
-        uint256 orderId = escrow.createOrder{value: amount}(
-            payable(seller),
-            ZONE_LEKKI
-        );
+        // Set zone price to fuzz amount
+        vm.prank(seller);
+        escrow.setPrice(ZONE_LEKKI, uint256(amount));
+
+        usdc.mint(buyer, uint256(amount));
+
+        vm.startPrank(buyer);
+        usdc.approve(address(escrow), uint256(amount));
+        uint256 orderId = escrow.createOrder(payable(seller), ZONE_LEKKI);
+        vm.stopPrank();
 
         EscrowCore.Order memory o = escrow.getOrder(orderId);
-        assertEq(o.monadAmount, amount);
+        assertEq(o.usdcAmount, uint256(amount));
     }
 
     function testFuzz_OTPAttemptTracking(uint8 wrongAttempts) public {
@@ -737,16 +758,13 @@ contract EscrowCoreTest is Test {
 
         for (uint8 i; i < wrongAttempts; i++) {
             vm.prank(buyer);
-            try escrow.confirmDelivery(orderId, "bad") {} catch {}
+            escrow.confirmDelivery(orderId, "bad");
         }
 
-        // Correct OTP should still work as long as attempts < max
+        // Correct OTP must still work within attempt limit
         vm.prank(buyer);
         escrow.confirmDelivery(orderId, VALID_OTP);
-        assertEq(
-            uint8(escrow.getStatus(orderId)),
-            uint8(EscrowCore.Status.Completed)
-        );
+        assertEq(uint8(escrow.getStatus(orderId)), uint8(EscrowCore.Status.Completed));
     }
 
     function testFuzz_DisputeWindowBoundary(uint256 warpSeconds) public {
@@ -756,12 +774,12 @@ contract EscrowCoreTest is Test {
         uint256 orderId = _createDeliverAndConfirm();
         vm.warp(block.timestamp + warpSeconds);
 
-        // Must still be within window
+        // Release must still be blocked inside window
         vm.expectRevert(EscrowCore.EscrowCore__DisputeWindowOpen.selector);
         escrow.releaseFunds(orderId);
 
-        // Dispute must still be allowed
+        // Dispute must still be allowed inside window
         vm.prank(buyer);
-        escrow.disputeOrder(orderId); // should not revert
+        escrow.disputeOrder(orderId);
     }
 }

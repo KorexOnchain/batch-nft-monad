@@ -2,7 +2,6 @@ import type { Metadata } from "next"
 import "./globals.css"
 import { Providers } from "./provider"
 import { type ReactNode } from "react"
-import Header from "@/components/Header"
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +17,6 @@ export default function RootLayout(prop: { children: ReactNode }) {
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body>
         <Providers>
-          <Header />
           {prop.children}
         </Providers>
       </body>
